@@ -1,18 +1,80 @@
-# See https://fly.io/docs/app-guides/continuous-deployment-with-github-actions/
-
 name: Fly Deploy
 on:
   push:
     branches:
       - main
+
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   deploy:
-    name: Deploy app
+    name: Deploy app to Fly
     runs-on: ubuntu-latest
-    concurrency: deploy-group    # optional: ensure only one action runs at a time
+    concurrency: deploy-group
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+        with:
+          version: latest
+
+      # (Optional) Print flyctl version for debugging
+      - name: flyctl version
+        run: flyctl version
+
+      # Set n8n secrets on Fly (will restart the app)
+      - name: Set n8n secrets on Fly
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          N8N_BASIC_AUTH_USER: ${{ secrets.N8N_BASIC_AUTH_USER }}
+          N8N_BASIC_AUTH_PASSWORD: ${{ secrets.N8N_BASIC_AUTH_PASSWORD }}
+          N8N_HOST: ${{ secrets.N8N_HOST }}        # optional
+          DB_HOST: ${{ secrets.DB_HOST }}          # optional
+          DB_USER: ${{ secrets.DB_USER }}          # optional
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}  # optional
+          DB_NAME: ${{ secrets.DB_NAME }}          # optional
+          REDIS_HOST: ${{ secrets.REDIS_HOST }}    # optional
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }} # optional
+        run: |
+          # ensure flyctl is authenticated via token
+          echo "$FLY_API_TOKEN" | flyctl auth login --access-token
+
+          # set required n8n secrets for production & to skip onboarding
+          # (these will be stored securely on Fly — NOT in the repo)
+          flyctl secrets set \
+            N8N_BASIC_AUTH_ACTIVE=true \
+            N8N_BASIC_AUTH_USER="$N8N_BASIC_AUTH_USER" \
+            N8N_BASIC_AUTH_PASSWORD="$N8N_BASIC_AUTH_PASSWORD" \
+            N8N_OWNER_SETUP_SKIP=true \
+            N8N_CREATOR_ID=__system
+
+          # If you provided DB/REDIS secrets, set them too (adjust names if needed)
+          if [ -n "$DB_HOST" ]; then
+            flyctl secrets set \
+              DB_TYPE=postgresdb \
+              DB_POSTGRESDB_HOST="$DB_HOST" \
+              DB_POSTGRESDB_DATABASE="${DB_NAME:-n8n}" \
+              DB_POSTGRESDB_USER="$DB_USER" \
+              DB_POSTGRESDB_PASSWORD="$DB_PASSWORD"
+          fi
+
+          if [ -n "$REDIS_HOST" ]; then
+            flyctl secrets set \
+              QUEUE_BULL_REDIS_HOST="$REDIS_HOST" \
+              QUEUE_BULL_REDIS_PASSWORD="$REDIS_PASSWORD"
+          fi
+
+      - name: Deploy to Fly (remote-only)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          # authenticate with flyctl using token
+          echo "$FLY_API_TOKEN" | flyctl auth login --access-token
+
+          # remote-only is recommended on CI (build on Fly)
+          flyctl deploy --remote-only
