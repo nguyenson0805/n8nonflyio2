@@ -1,27 +1,23 @@
-# fly.toml app configuration file generated for n8nonflyio2 on 2025-11-26T09:04:01Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
-app = 'n8nonflyio2'
-primary_region = 'sin'
+app = "n8nonflyio2"
+primary_region = "sin"
 
 [build]
+  dockerfile = "Dockerfile"
 
-[http_service]
-  internal_port = 5678
-  force_https = true
-  auto_stop_machines = 'stop'
-  auto_start_machines = true
-  min_machines_running = 0
-  processes = ['app']
-
-[[vm]]
-  size = 'shared-cpu-1x'
-  memory = '512mb'
-  cpu_kind = 'shared'
-  cpus = 1
-  memory_mb = 2048
+# Persist /data (bắt buộc nếu dùng SQLite)
 [[mounts]]
   source = "n8n_data"
   destination = "/data"
+
+# VM settings (performance recommended for stability)
+[vm]
+  cpu_kind = "performance"
+  cpus = 1
+  memory_mb = 2056   # 4GB
+
+# Service settings — n8n default listens on 5678
+[[services]]
+  internal_port = 5678
+  protocol = "tcp"
+
+
